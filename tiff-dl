@@ -1,0 +1,57 @@
+#!/bin/bash
+# download all TIFF¹ 2013 film trailers for you
+# ¹ Tromsø Internasjonale Filmfestival, www.tiff.no
+# requires: youtube-dl and curl
+
+# usage: ./tiff-dl [-n]
+
+# TODO
+# - dont download any flv videos
+# - use standard TIFF title
+
+parse_args() {
+	while getopts ":n" opt; do
+		case $opt in
+			n)
+				just_print_url=true
+				;;
+		esac
+	done
+}
+
+# usage: $0 depen denci es
+check_dependencies() {
+	for dependency in $@; do
+		which -s $dependency || {
+			echo "WARNING: We need $dependency. Get it via homebrew."
+			# exit 1
+		}
+	done
+}
+
+# usage: $0 film-url
+youtube="youtube.com/watch\?"
+vimeo="vimeo.com/\?v="
+vimeofix="player.vimeo.com/video/"
+get_video_url_for_film() {
+	# NOTE: we're just grabbing the first matching url, that's probably fine
+	curl -s "$1" | grep -Eo "http://($youtube|$vimeo)[^\"]*" | sed "s|$vimeo|$vimeofix|" | head -1
+}
+
+# usage: $0 program-url
+get_film_urls() {
+	curl -s "$1" | grep -o '/en/program/2013/[^"]*' | uniq | sed 's|^/|http://tiff.no/|'
+}
+
+parse_args $@
+check_dependencies youtube-dl curl
+
+for film in $(get_film_urls "http://tiff.no/en/program/"); do
+	echo NEXT UP: $film
+	url=$(get_video_url_for_film $film)
+	# TODO. '--max-quality 22' might trigger flv downloads for lesser-quality videos
+	# 22	:	mp4	[720x1280]
+	[ "$url" ] && {
+		[ "$just_print_url" ] && echo $url || youtube-dl --title --max-quality 22 "$url"
+	}
+done
