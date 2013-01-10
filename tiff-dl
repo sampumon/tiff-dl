@@ -3,10 +3,9 @@
 # ¹ Tromsø Internasjonale Filmfestival, www.tiff.no
 # requires: youtube-dl and curl
 
-# usage: ./tiff-dl [-n]
+# usage: ./tiff-dl [-n] [program-url]
 
 # TODO
-# - dont download any flv videos
 # - use standard TIFF title
 
 parse_args() {
@@ -17,16 +16,17 @@ parse_args() {
 				;;
 		esac
 	done
+	# shift getopts-parsed options away
+	shift $((OPTIND-1))
 }
 
 # usage: $0 depen denci es
 check_dependencies() {
+	missing=
 	for dependency in $@; do
-		which -s $dependency || {
-			echo "WARNING: We need $dependency. Get it via homebrew."
-			# exit 1
-		}
+		command -v $dependency > /dev/null || missing+=" $dependency"
 	done
+	[ "$missing" ] && echo "WARNING: Missing dependencies:$missing. Get them via homebrew."
 }
 
 # usage: $0 film-url
@@ -35,23 +35,45 @@ vimeo="vimeo.com/\?v="
 vimeofix="player.vimeo.com/video/"
 get_video_url_for_film() {
 	# NOTE: we're just grabbing the first matching url, that's probably fine
+	# TODO: fix BSD vs. GNU sed extended regexp
 	curl -s "$1" | grep -Eo "http://($youtube|$vimeo)[^\"]*" | sed "s|$vimeo|$vimeofix|" | head -1
 }
 
 # usage: $0 program-url
 get_film_urls() {
+	# TODO: make work with future years
 	curl -s "$1" | grep -o '/en/program/2013/[^"]*' | uniq | sed 's|^/|http://tiff.no/|'
+}
+
+# usage: $0 {youtube,vimeo}-url
+get_video() {
+	# 22	:	mp4	[720x1280]
+	youtube-dl --title "$1"
+
+	# EXTRA: convert flv to mp4
+	latest=$(ls -tc | head -1) # note the hack
+	base=${latest%%.*}
+	ext=${latest##*.}
+	[ "$ext" == "flv" ] && {
+		echo INFO: converting $latest to ….mp4
+		ffmpeg -v warning -i $latest -codec copy $base.mp4 && rm $latest
+	}
+}
+
+# usage: $0 mul tip le film url s
+get_films() {
+	let count=0
+	for film; do
+		echo INFO: $((++count))/$# $film
+		url=$(get_video_url_for_film $film)
+		[ "$url" ] || continue
+		[ "$just_print_url" ] && echo $url || get_video $url
+	done
 }
 
 parse_args $@
 check_dependencies youtube-dl curl
+program=${1:-"http://tiff.no/en/program/"}
 
-for film in $(get_film_urls "http://tiff.no/en/program/"); do
-	echo NEXT UP: $film
-	url=$(get_video_url_for_film $film)
-	# TODO. '--max-quality 22' might trigger flv downloads for lesser-quality videos
-	# 22	:	mp4	[720x1280]
-	[ "$url" ] && {
-		[ "$just_print_url" ] && echo $url || youtube-dl --title --max-quality 22 "$url"
-	}
-done
+echo INFO: getting main program from $program
+get_films $(get_film_urls $program)
